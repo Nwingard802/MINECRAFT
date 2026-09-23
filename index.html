@@ -1776,10 +1776,6 @@ function buildChunk(
 
     /*
         One face collection per block type.
-
-        This lets us use one material per
-        block type while still keeping a
-        single chunk mesh.
     */
 
     const faceGroups = {};
@@ -1801,8 +1797,7 @@ function buildChunk(
     for (
         let x = startX;
 
-        x <
-        startX + CHUNK_SIZE;
+        x < startX + CHUNK_SIZE;
 
         x++
     ) {
@@ -1810,8 +1805,7 @@ function buildChunk(
         for (
             let z = startZ;
 
-            z <
-            startZ + CHUNK_SIZE;
+            z < startZ + CHUNK_SIZE;
 
             z++
         ) {
@@ -1837,14 +1831,8 @@ function buildChunk(
                 }
 
 
-                /*
-                    Only create faces that
-                    are actually visible.
-                */
-
                 for (
-                    const face
-                    of FACE_DATA
+                    const face of FACE_DATA
                 ) {
 
                     const nx =
@@ -1862,13 +1850,10 @@ function buildChunk(
 
                     if (
                         !shouldRenderFace(
-
                             type,
-
                             nx,
                             ny,
                             nz
-
                         )
                     ) {
 
@@ -1906,24 +1891,43 @@ function buildChunk(
 
     const uvs = [];
 
+    const indices = [];
+
+
     /*
-        Used to identify the block
-        when raycasting.
+        This stores which block belongs
+        to each triangle.
+
+        Since every face has TWO triangles,
+        we add the block twice.
     */
 
     const blockForTriangle = [];
 
 
     /*
-        Material order.
+        Materials used by this chunk.
     */
 
-    const materialList =
-        [];
+    const materialList = [];
 
 
     /*
-        Build the geometry.
+        Current vertex index.
+    */
+
+    let vertexOffset = 0;
+
+
+    /*
+        Current material index.
+    */
+
+    let materialIndex = 0;
+
+
+    /*
+        Build geometry by block type.
     */
 
     for (
@@ -1948,6 +1952,15 @@ function buildChunk(
         );
 
 
+        /*
+            Remember where this material's
+            faces begin in the index buffer.
+        */
+
+        const groupStart =
+            indices.length;
+
+
         for (
             const item of faces
         ) {
@@ -1961,12 +1974,14 @@ function buildChunk(
 
 
             /*
-                Four vertices.
+                Add four vertices.
             */
 
             for (
                 let i = 0;
+
                 i < 4;
+
                 i++
             ) {
 
@@ -2008,13 +2023,41 @@ function buildChunk(
 
 
             /*
-                Two triangles.
+                IMPORTANT:
 
-                Triangle 1:
-                0 1 2
+                A quad needs TWO triangles.
 
-                Triangle 2:
-                0 2 3
+                    0 ---- 1
+                    |    / |
+                    |  /   |
+                    |/     |
+                    3 ---- 2
+
+                Triangles:
+
+                    0 1 2
+                    0 2 3
+            */
+
+            indices.push(
+
+                vertexOffset + 0,
+
+                vertexOffset + 1,
+
+                vertexOffset + 2,
+
+                vertexOffset + 0,
+
+                vertexOffset + 2,
+
+                vertexOffset + 3
+
+            );
+
+
+            /*
+                Two triangles = two entries.
             */
 
             blockForTriangle.push({
@@ -2034,27 +2077,66 @@ function buildChunk(
 
             });
 
+
+            vertexOffset += 4;
+
         }
+
+
+        /*
+            Material groups use INDEX
+            counts, NOT vertex counts.
+
+            Each face = 6 indices.
+        */
+
+        const groupCount =
+            indices.length -
+            groupStart;
+
+
+        /*
+            Water needs to be rendered after
+            opaque blocks.
+        */
+
+        geometryGroupPlaceholder:
+
+        materialIndex++;
 
     }
 
+
+    /*
+        No visible faces.
+    */
 
     if (
         positions.length === 0
     ) {
 
         loadedChunks.set(
+
             key,
+
             {
+
                 mesh: null,
+
                 geometry: null
+
             }
+
         );
 
         return;
 
     }
 
+
+    /*
+        Create geometry.
+    */
 
     const geometry =
         new THREE.BufferGeometry();
@@ -2106,18 +2188,26 @@ function buildChunk(
 
 
     /*
-        We need groups because each
-        block type has a different texture.
+        Add the index buffer.
 
-        Since the vertices are already
-        grouped by block type, each type
-        gets one draw group.
+        THIS WAS THE MAIN BUG.
     */
 
-    let vertexStart = 0;
+    geometry.setIndex(
+        indices
+    );
 
 
-    let materialIndex = 0;
+    /*
+        Re-create material groups.
+
+        Because the geometry is indexed,
+        groups count INDEXES.
+    */
+
+    let indexStart = 0;
+
+    let groupMaterialIndex = 0;
 
 
     for (
@@ -2137,30 +2227,38 @@ function buildChunk(
         }
 
 
-        const vertexCount =
+        const indexCount =
             faces.length *
             6;
 
 
         geometry.addGroup(
 
-            vertexStart,
+            indexStart,
 
-            vertexCount,
+            indexCount,
 
-            materialIndex
+            groupMaterialIndex
 
         );
 
 
-        vertexStart +=
-            vertexCount;
+        indexStart +=
+            indexCount;
 
 
-        materialIndex++;
+        groupMaterialIndex++;
 
     }
 
+
+    /*
+        Store raycast information.
+
+        faceIndex from Three.js refers
+        to triangle number, which matches
+        this array perfectly.
+    */
 
     geometry.userData.blockForTriangle =
         blockForTriangle;
@@ -2168,6 +2266,10 @@ function buildChunk(
 
     geometry.computeBoundingSphere();
 
+
+    /*
+        Create chunk mesh.
+    */
 
     const mesh =
         new THREE.Mesh(
@@ -2181,6 +2283,7 @@ function buildChunk(
 
     mesh.userData.chunkX =
         cx;
+
 
     mesh.userData.chunkZ =
         cz;
