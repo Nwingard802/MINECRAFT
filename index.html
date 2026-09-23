@@ -1838,6 +1838,24 @@ const loadedChunks =
     new Map();
 
 
+/*
+    Chunks can become visually stale when world data is
+    generated after the chunk mesh was already built.
+    Dirty chunks are rebuilt automatically.
+*/
+const dirtyChunks =
+    new Set();
+
+
+/*
+    Water flow level:
+    0 = source water
+    1+ = flowing water
+*/
+const waterFlowLevel =
+    new Map();
+
+
 function worldToChunk(
     x
 ) {
@@ -2304,14 +2322,96 @@ function isCave(
         );
 
 
+    /*
+        Two overlapping 3D-ish noise fields make broad,
+        irregular tunnels instead of isolated single holes.
+        Keep the upper layers mostly intact so caves are
+        primarily underground.
+    */
+    const n3 =
+        valueNoise(
+            x + y * 11 + 9000,
+            z - y * 5 - 9000,
+            30
+        );
+
     return (
-
-        n1 > 0.68 &&
-        n2 > 0.56 &&
-        y < 18
-
+        y >= 3 &&
+        y < 22 &&
+        n1 > 0.64 &&
+        n2 > 0.53 &&
+        n3 > 0.38
     );
 
+}
+
+
+/* =========================================================
+   COLUMN GENERATION
+========================================================= */
+
+/*
+    Mark the chunk containing a block as needing a new mesh.
+    Neighboring chunks are also marked because a block on a
+    chunk edge can change the visible face of its neighbor.
+*/
+function markChunkDirtyAt(
+    x,
+    z
+) {
+
+    const cx =
+        worldToChunk(x);
+
+    const cz =
+        worldToChunk(z);
+
+    const localX =
+        x - chunkStart(cx);
+
+    const localZ =
+        z - chunkStart(cz);
+
+    const keys = [
+        [cx, cz]
+    ];
+
+    if (localX === 0) {
+        keys.push([cx - 1, cz]);
+    }
+
+    if (localX === CHUNK_SIZE - 1) {
+        keys.push([cx + 1, cz]);
+    }
+
+    if (localZ === 0) {
+        keys.push([cx, cz - 1]);
+    }
+
+    if (localZ === CHUNK_SIZE - 1) {
+        keys.push([cx, cz + 1]);
+    }
+
+    for (const [dcx, dcz] of keys) {
+        const key =
+            chunkKey(
+                dcx,
+                dcz
+            );
+
+        if (loadedChunks.has(key)) {
+            dirtyChunks.add(key);
+        }
+    }
+}
+
+
+function markBlockDirty(
+    x,
+    y,
+    z
+) {
+    markChunkDirtyAt(x, z);
 }
 
 
@@ -2497,16 +2597,21 @@ function generateColumn(
             y++
         ) {
 
-            worldBlocks.set(
-
+            const waterKey =
                 blockKey(
                     x,
                     y,
                     z
-                ),
+                );
 
+            worldBlocks.set(
+                waterKey,
                 "water"
+            );
 
+            waterFlowLevel.set(
+                waterKey,
+                0
             );
 
         }
@@ -2576,6 +2681,17 @@ function generateColumn(
         }
 
     }
+
+
+    /*
+        The column may have been generated after its
+        chunk mesh was created. Force that mesh to update.
+    */
+    markBlockDirty(
+        x,
+        0,
+        z
+    );
 
 }
 
@@ -3460,6 +3576,10 @@ function removeChunk(
         key
     );
 
+    dirtyChunks.delete(
+        key
+    );
+
 }
 
 
@@ -3566,6 +3686,17 @@ function updateChunks() {
                     key
                 )
             ) {
+
+                buildChunk(
+                    cx,
+                    cz
+                );
+
+            } else if (
+                dirtyChunks.has(key)
+            ) {
+
+                dirtyChunks.delete(key);
 
                 buildChunk(
                     cx,
@@ -3759,6 +3890,10 @@ function rebuildAffectedChunks(
                 )
             );
 
+
+        dirtyChunks.delete(
+            key
+        );
 
         buildChunk(
             cx2,
@@ -4795,8 +4930,265 @@ function updatePhysics(
 
 
 /* =========================================================
-   HUNGER TICK
+   WATER FLOW
 ========================================================= */
+
+/*
+    Simple Minecraft-style flowing water.
+
+    Sources (level 0) can flow up to WATER_FLOW_DISTANCE
+    blocks away. Flowing water prefers downward movement,
+    then spreads sideways when it cannot fall.
+
+    This is intentionally voxel based, so it works with
+    caves, player-placed water, and generated terrain.
+*/
+const WATER_TICK_RATE = 0.12;
+const WATER_FLOW_DISTANCE = 6;
+let waterTimer = 0;
+
+function updateWaterFlow(
+    delta
+) {
+
+    waterTimer += delta;
+
+    if (
+        waterTimer < WATER_TICK_RATE
+    ) {
+        return;
+    }
+
+    waterTimer = 0;
+
+    const additions = [];
+    const currentWater = [];
+
+    for (
+        const [key, type]
+        of worldBlocks
+    ) {
+
+        if (
+            type !== "water"
+        ) {
+            continue;
+        }
+
+        currentWater.push(key);
+    }
+
+    /*
+        Process only the water that already exists at the
+        beginning of this tick. This prevents one tick from
+        creating an enormous chain.
+    */
+    for (
+        const key
+        of currentWater
+    ) {
+
+        const parts =
+            key.split(",");
+
+        const x =
+            Number(parts[0]);
+
+        const y =
+            Number(parts[1]);
+
+        const z =
+            Number(parts[2]);
+
+        const level =
+            waterFlowLevel.get(key) ?? 0;
+
+        if (
+            level >= WATER_FLOW_DISTANCE
+        ) {
+            continue;
+        }
+
+        /*
+            Downward flow has priority.
+        */
+        const belowKey =
+            blockKey(
+                x,
+                y - 1,
+                z
+            );
+
+        if (
+            y > MIN_Y &&
+            !worldBlocks.has(belowKey)
+        ) {
+
+            additions.push({
+                key: belowKey,
+                level: level + 1
+            });
+
+            continue;
+        }
+
+        /*
+            If water cannot fall, spread sideways.
+        */
+        const directions = [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1]
+        ];
+
+        for (
+            const [dx, dz]
+            of directions
+        ) {
+
+            const nx =
+                x + dx;
+
+            const nz =
+                z + dz;
+
+            const nextKey =
+                blockKey(
+                    nx,
+                    y,
+                    nz
+                );
+
+            if (
+                worldBlocks.has(nextKey)
+            ) {
+                continue;
+            }
+
+            additions.push({
+                key: nextKey,
+                level: level + 1
+            });
+
+        }
+
+    }
+
+    let changed = false;
+
+    for (
+        const item
+        of additions
+    ) {
+
+        if (
+            worldBlocks.has(
+                item.key
+            )
+        ) {
+            continue;
+        }
+
+        const parts =
+            item.key.split(",");
+
+        const x =
+            Number(parts[0]);
+
+        const y =
+            Number(parts[1]);
+
+        const z =
+            Number(parts[2]);
+
+        if (
+            y < MIN_Y ||
+            y >= WORLD_HEIGHT
+        ) {
+            continue;
+        }
+
+        /*
+            Do not let generated water flood endlessly across
+            the ocean. Only source/flow water placed into an
+            empty block creates new flowing water.
+        */
+        worldBlocks.set(
+            item.key,
+            "water"
+        );
+
+        waterFlowLevel.set(
+            item.key,
+            item.level
+        );
+
+        markBlockDirty(
+            x,
+            y,
+            z
+        );
+
+        changed = true;
+    }
+
+    if (
+        changed
+    ) {
+
+        /*
+            Rebuild immediately so the water appears without
+            requiring the player to break/place a block.
+        */
+        for (
+            const key
+            of dirtyChunks
+        ) {
+
+            const comma =
+                key.indexOf(",");
+
+            const cx =
+                Number(
+                    key.slice(
+                        0,
+                        comma
+                    )
+                );
+
+            const cz =
+                Number(
+                    key.slice(
+                        comma + 1
+                    )
+                );
+
+            if (
+                loadedChunks.has(key)
+            ) {
+
+                dirtyChunks.delete(
+                    key
+                );
+
+                buildChunk(
+                    cx,
+                    cz
+                );
+
+            }
+
+        }
+
+    }
+
+}
+
+
+/* =========================================================
+   HUNGER TICK
+========================================================= 
 
 let hungerTimer = 0;
 
@@ -5197,14 +5589,19 @@ function finishBreaking() {
     }
 
 
-    worldBlocks.delete(
-
+    const removedKey =
         blockKey(
             x,
             y,
             z
-        )
+        );
 
+    worldBlocks.delete(
+        removedKey
+    );
+
+    waterFlowLevel.delete(
+        removedKey
     );
 
 
@@ -5676,6 +6073,15 @@ function placeBlock() {
         key,
         type
     );
+
+    if (
+        type === "water"
+    ) {
+        waterFlowLevel.set(
+            key,
+            0
+        );
+    }
 
 
     rebuildAffectedChunks(
@@ -6489,8 +6895,14 @@ let lastChunkX = null;
 
 let lastChunkZ = null;
 
+let worldUpdateTimer = 0;
 
-function updateWorldIfNeeded() {
+const WORLD_UPDATE_INTERVAL = 0.15;
+
+
+function updateWorldIfNeeded(
+    delta
+) {
 
     const cx =
         worldToChunk(
@@ -6503,12 +6915,17 @@ function updateWorldIfNeeded() {
             player.position.z
         );
 
+    const chunkChanged =
+        cx !== lastChunkX ||
+        cz !== lastChunkZ;
+
+    worldUpdateTimer +=
+        delta;
 
     if (
-
-        cx !== lastChunkX ||
-        cz !== lastChunkZ
-
+        chunkChanged ||
+        worldUpdateTimer >=
+        WORLD_UPDATE_INTERVAL
     ) {
 
         lastChunkX =
@@ -6517,6 +6934,7 @@ function updateWorldIfNeeded() {
         lastChunkZ =
             cz;
 
+        worldUpdateTimer = 0;
 
         updateChunks();
 
@@ -6570,6 +6988,11 @@ function animate() {
     );
 
 
+    updateWaterFlow(
+        delta
+    );
+
+
     updateHunger(
         delta
     );
@@ -6598,7 +7021,9 @@ function animate() {
     updateCamera();
 
 
-    updateWorldIfNeeded();
+    updateWorldIfNeeded(
+        delta
+    );
 
 
     renderer.render(
