@@ -9,7 +9,7 @@
     content="width=device-width, initial-scale=1.0"
 >
 
-<title>Nathans MC</title>
+<title>Nathans Test</title>
 
 <style>
 
@@ -818,7 +818,10 @@ canvas {
    SETTINGS
 ========================================================= */
 
-const RENDER_DISTANCE = 32;
+const RENDER_DISTANCE = 20;
+
+let generationRadius = 8;
+const GENERATION_STEP = 4;
 
 const CHUNK_SIZE = 8;
 
@@ -2700,7 +2703,7 @@ function generateColumn(
    GENERATE WORLD
 ========================================================= */
 
-function generateWorldAroundPlayer() {
+function generateWorldAroundPlayer(radius = generationRadius) {
 
     const px =
         Math.floor(
@@ -2716,20 +2719,20 @@ function generateWorldAroundPlayer() {
 
     for (
         let x =
-            px - RENDER_DISTANCE;
+            px - radius;
 
         x <=
-        px + RENDER_DISTANCE;
+        px + radius;
 
         x++
     ) {
 
         for (
             let z =
-                pz - RENDER_DISTANCE;
+                pz - radius;
 
             z <=
-            pz + RENDER_DISTANCE;
+            pz + radius;
 
             z++
         ) {
@@ -2744,8 +2747,8 @@ function generateWorldAroundPlayer() {
             if (
                 dx * dx +
                 dz * dz >
-                RENDER_DISTANCE *
-                RENDER_DISTANCE
+                radius *
+                radius
             ) {
 
                 continue;
@@ -3590,6 +3593,13 @@ function removeChunk(
 function updateChunks() {
 
     generateWorldAroundPlayer();
+
+    if (generationRadius < RENDER_DISTANCE) {
+        generationRadius = Math.min(
+            generationRadius + GENERATION_STEP,
+            RENDER_DISTANCE
+        );
+    }
 
 
     const pcx =
@@ -5188,7 +5198,8 @@ function updateWaterFlow(
 
 /* =========================================================
    HUNGER TICK
-========================================================= 
+=========================================================
+*/
 
 let hungerTimer = 0;
 
@@ -7055,7 +7066,9 @@ createClouds();
 
 findSpawn();
 
-generateWorldAroundPlayer();
+// Start with a small area so the browser can enter the game quickly.
+generationRadius = 8;
+generateWorldAroundPlayer(8);
 
 updateChunks();
 
