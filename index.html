@@ -120,6 +120,7 @@
         inset: 0;
         background: #87ceeb;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
         color: white;
@@ -128,11 +129,21 @@
         z-index: 100;
     }
 
+    #loadingText {
+        font-size: 30px;
+    }
+
+    #loadingSubtext {
+        margin-top: 10px;
+        font-size: 15px;
+        opacity: 0.9;
+    }
+
     #startScreen {
         position: fixed;
         inset: 0;
         background: rgba(0,0,0,0.45);
-        display: flex;
+        display: none;
         flex-direction: column;
         align-items: center;
         justify-content: center;
@@ -194,7 +205,10 @@
 
 <body>
 
-<div id="loading">Generating world...</div>
+<div id="loading">
+    <div id="loadingText">Generating world...</div>
+    <div id="loadingSubtext">Preparing terrain</div>
+</div>
 
 <div id="startScreen">
     <h1>Rough Minecraft</h1>
@@ -269,6 +283,30 @@ const FALL_DAMAGE_PER_BLOCK = 1;
 const RESPAWN_DELAY = 1200;
 
 
+/*
+    Number of terrain columns generated per frame.
+
+    Lower = smoother startup
+    Higher = faster generation
+*/
+const TERRAIN_COLUMNS_PER_FRAME = 100;
+
+
+/*
+    Number of chunks meshed per frame.
+
+    Keeping this low prevents the browser from freezing.
+*/
+const CHUNKS_PER_FRAME = 2;
+
+
+/*
+    How often the game checks for chunks around
+    the player.
+*/
+const CHUNK_UPDATE_INTERVAL = 0.25;
+
+
 ////////////////////////////////////////////////////////////
 // BLOCK TYPES
 ////////////////////////////////////////////////////////////
@@ -297,49 +335,68 @@ const NON_SOLID_BLOCKS = new Set([
 
 const scene = new THREE.Scene();
 
-scene.background = new THREE.Color(0x87ceeb);
+scene.background =
+    new THREE.Color(0x87ceeb);
 
-const camera = new THREE.PerspectiveCamera(
-    75,
-    window.innerWidth / window.innerHeight,
-    0.05,
-    300
-);
+
+const camera =
+    new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth /
+        window.innerHeight,
+        0.05,
+        300
+    );
 
 camera.rotation.order = "YXZ";
 
-const renderer = new THREE.WebGLRenderer({
-    antialias: false,
-    powerPreference: "high-performance"
-});
+
+const renderer =
+    new THREE.WebGLRenderer({
+        antialias: false,
+        powerPreference: "high-performance"
+    });
+
 
 renderer.setSize(
     window.innerWidth,
     window.innerHeight
 );
 
+
 renderer.setPixelRatio(
-    Math.min(window.devicePixelRatio, 1.5)
+    Math.min(
+        window.devicePixelRatio,
+        1.5
+    )
 );
 
-document.body.appendChild(renderer.domElement);
+
+document.body.appendChild(
+    renderer.domElement
+);
 
 
 ////////////////////////////////////////////////////////////
 // LIGHT
 ////////////////////////////////////////////////////////////
 
-const ambientLight = new THREE.AmbientLight(
-    0xffffff,
-    1.5
+const ambientLight =
+    new THREE.AmbientLight(
+        0xffffff,
+        1.5
+    );
+
+scene.add(
+    ambientLight
 );
 
-scene.add(ambientLight);
 
-const sun = new THREE.DirectionalLight(
-    0xffffff,
-    1.8
-);
+const sun =
+    new THREE.DirectionalLight(
+        0xffffff,
+        1.8
+    );
 
 sun.position.set(
     100,
@@ -347,63 +404,78 @@ sun.position.set(
     100
 );
 
-scene.add(sun);
+scene.add(
+    sun
+);
 
 
 ////////////////////////////////////////////////////////////
 // TEXTURES
 ////////////////////////////////////////////////////////////
 
-const textureLoader = new THREE.TextureLoader();
+const textureLoader =
+    new THREE.TextureLoader();
 
 const textures = {};
 
 const materials = {};
 
-let texturesLoaded = 0;
 
 for (const block of BLOCKS) {
 
-    const texture = textureLoader.load(
-        TEXTURE_BASE + block + ".png",
-        () => {
-            texturesLoaded++;
-        }
-    );
+    const texture =
+        textureLoader.load(
+            TEXTURE_BASE +
+            block +
+            ".png"
+        );
 
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
 
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.magFilter =
+        THREE.NearestFilter;
 
-    textures[block] = texture;
+    texture.minFilter =
+        THREE.NearestFilter;
+
+    texture.wrapS =
+        THREE.ClampToEdgeWrapping;
+
+    texture.wrapT =
+        THREE.ClampToEdgeWrapping;
+
+
+    textures[block] =
+        texture;
+
 
     if (block === "water") {
 
-        materials[block] = new THREE.MeshLambertMaterial({
-            map: texture,
-            transparent: true,
-            opacity: 0.65,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-            forceSinglePass: true
-        });
+        materials[block] =
+            new THREE.MeshLambertMaterial({
+                map: texture,
+                transparent: true,
+                opacity: 0.65,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+                forceSinglePass: true
+            });
 
     } else if (block === "leaves") {
 
-        materials[block] = new THREE.MeshLambertMaterial({
-            map: texture,
-            transparent: true,
-            alphaTest: 0.1,
-            side: THREE.DoubleSide
-        });
+        materials[block] =
+            new THREE.MeshLambertMaterial({
+                map: texture,
+                transparent: true,
+                alphaTest: 0.1,
+                side: THREE.DoubleSide
+            });
 
     } else {
 
-        materials[block] = new THREE.MeshLambertMaterial({
-            map: texture
-        });
+        materials[block] =
+            new THREE.MeshLambertMaterial({
+                map: texture
+            });
     }
 }
 
@@ -412,38 +484,72 @@ for (const block of BLOCKS) {
 // HEALTH
 ////////////////////////////////////////////////////////////
 
-let health = MAX_HEALTH;
+let health =
+    MAX_HEALTH;
 
-const healthDiv = document.getElementById("health");
+
+const healthDiv =
+    document.getElementById(
+        "health"
+    );
+
 
 function updateHealthUI() {
 
     healthDiv.innerHTML = "";
 
-    const hearts = MAX_HEALTH / 2;
+    const hearts =
+        MAX_HEALTH / 2;
 
-    for (let i = 0; i < hearts; i++) {
 
-        const img = document.createElement("img");
+    for (
+        let i = 0;
+        i < hearts;
+        i++
+    ) {
 
-        img.className = "heart";
+        const img =
+            document.createElement(
+                "img"
+            );
 
-        if (health >= (i + 1) * 2) {
 
-            img.src = TEXTURE_BASE + "heart.png";
+        img.className =
+            "heart";
 
-        } else if (health === (i * 2) + 1) {
 
-            img.src = TEXTURE_BASE + "half.png";
+        if (
+            health >=
+            (i + 1) * 2
+        ) {
+
+            img.src =
+                TEXTURE_BASE +
+                "heart.png";
+
+        } else if (
+            health ===
+            (i * 2) + 1
+        ) {
+
+            img.src =
+                TEXTURE_BASE +
+                "half.png";
 
         } else {
 
-            img.src = TEXTURE_BASE + "empty.png";
+            img.src =
+                TEXTURE_BASE +
+                "empty.png";
         }
 
-        healthDiv.appendChild(img);
+
+        healthDiv.appendChild(
+            img
+        );
     }
 }
+
 
 updateHealthUI();
 
@@ -453,7 +559,10 @@ updateHealthUI();
 ////////////////////////////////////////////////////////////
 
 const damageFlash =
-    document.getElementById("damageFlash");
+    document.getElementById(
+        "damageFlash"
+    );
+
 
 function damage(amount) {
 
@@ -461,22 +570,34 @@ function damage(amount) {
         return;
     }
 
+
     health -= amount;
 
-    health = Math.max(
-        0,
-        Math.round(health)
-    );
+
+    health =
+        Math.max(
+            0,
+            Math.round(health)
+        );
+
 
     updateHealthUI();
 
-    damageFlash.style.opacity = "1";
+
+    damageFlash.style.opacity =
+        "1";
+
 
     setTimeout(() => {
-        damageFlash.style.opacity = "0";
+
+        damageFlash.style.opacity =
+            "0";
+
     }, 100);
 
+
     if (health <= 0) {
+
         die();
     }
 }
@@ -488,8 +609,12 @@ function damage(amount) {
 
 let dead = false;
 
+
 const deathScreen =
-    document.getElementById("deathScreen");
+    document.getElementById(
+        "deathScreen"
+    );
+
 
 function die() {
 
@@ -497,9 +622,13 @@ function die() {
         return;
     }
 
+
     dead = true;
 
-    deathScreen.style.display = "flex";
+
+    deathScreen.style.display =
+        "flex";
+
 
     setTimeout(() => {
 
@@ -513,50 +642,102 @@ function die() {
 // WORLD STORAGE
 ////////////////////////////////////////////////////////////
 
-const worldBlocks = new Map();
+/*
+    This is the important part.
 
-const generatedColumns = new Set();
+    Once a block has been generated or edited,
+    it stays here.
 
-const loadedChunks = new Map();
+    Unloaded chunks are NOT regenerated from scratch.
+*/
+
+const worldBlocks =
+    new Map();
 
 
-function blockKey(x, y, z) {
+const generatedColumns =
+    new Set();
+
+
+const loadedChunks =
+    new Map();
+
+
+function blockKey(
+    x,
+    y,
+    z
+) {
 
     return `${x},${y},${z}`;
 }
 
 
-function getBlock(x, y, z) {
+function getBlock(
+    x,
+    y,
+    z
+) {
 
     if (y < 0) {
         return "stone";
     }
 
-    if (y >= WORLD_HEIGHT) {
+
+    if (
+        y >= WORLD_HEIGHT
+    ) {
+
         return null;
     }
 
+
     return worldBlocks.get(
-        blockKey(x, y, z)
+        blockKey(
+            x,
+            y,
+            z
+        )
     ) || null;
 }
 
 
-function setBlock(x, y, z, type) {
+function setBlock(
+    x,
+    y,
+    z,
+    type
+) {
 
-    if (y < 0 || y >= WORLD_HEIGHT) {
+    if (
+        y < 0 ||
+        y >= WORLD_HEIGHT
+    ) {
+
         return;
     }
 
-    const key = blockKey(x, y, z);
+
+    const key =
+        blockKey(
+            x,
+            y,
+            z
+        );
+
 
     if (type === null) {
 
-        worldBlocks.delete(key);
+        worldBlocks.delete(
+            key
+        );
 
     } else {
 
-        worldBlocks.set(key, type);
+        worldBlocks.set(
+            key,
+            type
+        );
     }
 }
 
@@ -565,65 +746,119 @@ function setBlock(x, y, z, type) {
 // TERRAIN
 ////////////////////////////////////////////////////////////
 
-function hash2D(x, z) {
+function hash2D(
+    x,
+    z
+) {
 
     let h =
         Math.sin(
             x * 127.1 +
             z * 311.7
-        ) * 43758.5453123;
+        ) *
+        43758.5453123;
 
-    return h - Math.floor(h);
+
+    return h -
+        Math.floor(h);
 }
 
 
-function smoothNoise(x, z) {
+function smoothNoise(
+    x,
+    z
+) {
 
-    const x0 = Math.floor(x);
-    const z0 = Math.floor(z);
+    const x0 =
+        Math.floor(x);
 
-    const xf = x - x0;
-    const zf = z - z0;
+    const z0 =
+        Math.floor(z);
 
-    const a = hash2D(x0, z0);
-    const b = hash2D(x0 + 1, z0);
-    const c = hash2D(x0, z0 + 1);
-    const d = hash2D(x0 + 1, z0 + 1);
+
+    const xf =
+        x - x0;
+
+    const zf =
+        z - z0;
+
+
+    const a =
+        hash2D(
+            x0,
+            z0
+        );
+
+    const b =
+        hash2D(
+            x0 + 1,
+            z0
+        );
+
+    const c =
+        hash2D(
+            x0,
+            z0 + 1
+        );
+
+    const d =
+        hash2D(
+            x0 + 1,
+            z0 + 1
+        );
+
 
     const sx =
-        xf * xf * (3 - 2 * xf);
+        xf * xf *
+        (3 - 2 * xf);
 
     const sz =
-        zf * zf * (3 - 2 * zf);
+        zf * zf *
+        (3 - 2 * zf);
+
 
     const ab =
-        a + (b - a) * sx;
+        a +
+        (b - a) * sx;
 
     const cd =
-        c + (d - c) * sx;
+        c +
+        (d - c) * sx;
 
-    return ab + (cd - ab) * sz;
+
+    return ab +
+        (cd - ab) * sz;
 }
 
 
-function terrainHeight(x, z) {
+function terrainHeight(
+    x,
+    z
+) {
 
     let value = 0;
 
-    value += smoothNoise(
-        x * 0.035,
-        z * 0.035
-    ) * 7;
 
-    value += smoothNoise(
-        x * 0.09,
-        z * 0.09
-    ) * 3;
+    value +=
+        smoothNoise(
+            x * 0.035,
+            z * 0.035
+        ) * 7;
 
-    value += smoothNoise(
-        x * 0.2,
-        z * 0.2
-    ) * 1.2;
+
+    value +=
+        smoothNoise(
+            x * 0.09,
+            z * 0.09
+        ) * 3;
+
+
+    value +=
+        smoothNoise(
+            x * 0.2,
+            z * 0.2
+        ) * 1.2;
+
 
     return Math.max(
         1,
@@ -636,12 +871,21 @@ function terrainHeight(x, z) {
 // TREES
 ////////////////////////////////////////////////////////////
 
-function generateTree(x, y, z) {
+function generateTree(
+    x,
+    y,
+    z
+) {
 
-    const trunkHeight = 3 +
+    const trunkHeight =
+        3 +
         Math.floor(
-            hash2D(x * 7, z * 11) * 3
+            hash2D(
+                x * 7,
+                z * 11
+            ) * 3
         );
+
 
     for (
         let i = 0;
@@ -649,7 +893,10 @@ function generateTree(x, y, z) {
         i++
     ) {
 
-        if (y + i < WORLD_HEIGHT) {
+        if (
+            y + i <
+            WORLD_HEIGHT
+        ) {
 
             setBlock(
                 x,
@@ -660,30 +907,62 @@ function generateTree(x, y, z) {
         }
     }
 
-    const leafBase = y + trunkHeight - 1;
 
-    for (let dx = -2; dx <= 2; dx++) {
+    const leafBase =
+        y +
+        trunkHeight -
+        1;
 
-        for (let dy = 0; dy <= 2; dy++) {
 
-            for (let dz = -2; dz <= 2; dz++) {
+    for (
+        let dx = -2;
+        dx <= 2;
+        dx++
+    ) {
+
+        for (
+            let dy = 0;
+            dy <= 2;
+            dy++
+        ) {
+
+            for (
+                let dz = -2;
+                dz <= 2;
+                dz++
+            ) {
 
                 const distance =
                     Math.abs(dx) +
                     Math.abs(dz);
 
-                if (distance > 3) {
+
+                if (
+                    distance > 3
+                ) {
+
                     continue;
                 }
 
-                const lx = x + dx;
-                const ly = leafBase + dy;
-                const lz = z + dz;
+
+                const lx =
+                    x + dx;
+
+                const ly =
+                    leafBase + dy;
+
+                const lz =
+                    z + dz;
+
 
                 if (
                     ly >= 0 &&
                     ly < WORLD_HEIGHT &&
-                    !getBlock(lx, ly, lz)
+                    !getBlock(
+                        lx,
+                        ly,
+                        lz
+                    )
                 ) {
 
                     setBlock(
@@ -703,36 +982,73 @@ function generateTree(x, y, z) {
 // COLUMN GENERATION
 ////////////////////////////////////////////////////////////
 
-function generateColumn(x, z) {
+function generateColumn(
+    x,
+    z
+) {
 
-    const columnKey = `${x},${z}`;
+    const columnKey =
+        `${x},${z}`;
 
-    if (generatedColumns.has(columnKey)) {
+
+    if (
+        generatedColumns.has(
+            columnKey
+        )
+    ) {
+
         return;
     }
 
-    generatedColumns.add(columnKey);
+
+    generatedColumns.add(
+        columnKey
+    );
+
 
     const height =
-        terrainHeight(x, z);
+        terrainHeight(
+            x,
+            z
+        );
 
-    for (let y = 0; y <= height; y++) {
+
+    for (
+        let y = 0;
+        y <= height;
+        y++
+    ) {
 
         let type;
 
-        if (y === height) {
 
-            if (height <= SEA_LEVEL) {
+        if (
+            y === height
+        ) {
+
+            if (
+                height <= SEA_LEVEL
+            ) {
+
                 type = "sand";
+
             } else {
+
                 type = "grass";
             }
 
-        } else if (y >= height - 3) {
+        } else if (
+            y >= height - 3
+        ) {
 
-            if (height <= SEA_LEVEL) {
+            if (
+                height <= SEA_LEVEL
+            ) {
+
                 type = "sand";
+
             } else {
+
                 type = "dirt";
             }
 
@@ -740,6 +1056,7 @@ function generateColumn(x, z) {
 
             type = "stone";
         }
+
 
         setBlock(
             x,
@@ -749,8 +1066,14 @@ function generateColumn(x, z) {
         );
     }
 
-    // Water fills low terrain
-    if (height < SEA_LEVEL) {
+
+    ////////////////////////////////////////////////////////
+    // WATER
+    ////////////////////////////////////////////////////////
+
+    if (
+        height < SEA_LEVEL
+    ) {
 
         for (
             let y = height + 1;
@@ -758,7 +1081,9 @@ function generateColumn(x, z) {
             y++
         ) {
 
-            if (y < WORLD_HEIGHT) {
+            if (
+                y < WORLD_HEIGHT
+            ) {
 
                 setBlock(
                     x,
@@ -770,10 +1095,18 @@ function generateColumn(x, z) {
         }
     }
 
-    // Tree chance
+
+    ////////////////////////////////////////////////////////
+    // TREES
+    ////////////////////////////////////////////////////////
+
     if (
-        height > SEA_LEVEL + 1 &&
-        hash2D(x * 3, z * 5) > 0.88
+        height >
+            SEA_LEVEL + 1 &&
+        hash2D(
+            x * 3,
+            z * 5
+        ) > 0.88
     ) {
 
         generateTree(
@@ -789,13 +1122,18 @@ function generateColumn(x, z) {
 // CHUNK HELPERS
 ////////////////////////////////////////////////////////////
 
-function chunkKey(cx, cz) {
+function chunkKey(
+    cx,
+    cz
+) {
 
     return `${cx},${cz}`;
 }
 
 
-function worldToChunk(value) {
+function worldToChunk(
+    value
+) {
 
     return Math.floor(
         value / CHUNK_SIZE
@@ -806,18 +1144,9 @@ function worldToChunk(value) {
 ////////////////////////////////////////////////////////////
 // FACE DEFINITIONS
 ////////////////////////////////////////////////////////////
-//
-// Every face has:
-// 4 corners
-// 2 triangles
-//
-// The winding is deliberately consistent.
-// This fixes the giant triangular geometry bug.
-//
 
 const FACE_DEFINITIONS = [
 
-    // +X
     {
         dir: [1, 0, 0],
 
@@ -829,7 +1158,6 @@ const FACE_DEFINITIONS = [
         ]
     },
 
-    // -X
     {
         dir: [-1, 0, 0],
 
@@ -841,7 +1169,6 @@ const FACE_DEFINITIONS = [
         ]
     },
 
-    // +Y
     {
         dir: [0, 1, 0],
 
@@ -853,7 +1180,6 @@ const FACE_DEFINITIONS = [
         ]
     },
 
-    // -Y
     {
         dir: [0, -1, 0],
 
@@ -865,7 +1191,6 @@ const FACE_DEFINITIONS = [
         ]
     },
 
-    // +Z
     {
         dir: [0, 0, 1],
 
@@ -877,7 +1202,6 @@ const FACE_DEFINITIONS = [
         ]
     },
 
-    // -Z
     {
         dir: [0, 0, -1],
 
@@ -907,13 +1231,18 @@ const FACE_UVS = [
 // FACE VISIBILITY
 ////////////////////////////////////////////////////////////
 
-function isTransparent(type) {
+function isTransparent(
+    type
+) {
 
     if (!type) {
         return true;
     }
 
-    return NON_SOLID_BLOCKS.has(type);
+
+    return NON_SOLID_BLOCKS.has(
+        type
+    );
 }
 
 
@@ -926,30 +1255,37 @@ function shouldRenderFace(
         return true;
     }
 
-    // Don't render internal faces
-    // between two solid blocks.
+
     if (
-        !isTransparent(blockType) &&
-        !isTransparent(neighborType)
+        !isTransparent(
+            blockType
+        ) &&
+        !isTransparent(
+            neighborType
+        )
     ) {
+
         return false;
     }
 
-    // Don't render water against water.
+
     if (
         blockType === "water" &&
         neighborType === "water"
     ) {
+
         return false;
     }
 
-    // Don't render leaves against leaves.
+
     if (
         blockType === "leaves" &&
         neighborType === "leaves"
     ) {
+
         return false;
     }
+
 
     return true;
 }
@@ -959,12 +1295,27 @@ function shouldRenderFace(
 // CHUNK MESH GENERATION
 ////////////////////////////////////////////////////////////
 
-function buildChunk(cx, cz) {
+function buildChunk(
+    cx,
+    cz
+) {
 
-    const key = chunkKey(cx, cz);
+    const key =
+        chunkKey(
+            cx,
+            cz
+        );
+
+
+    ////////////////////////////////////////////////////////
+    // REMOVE OLD VERSION
+    ////////////////////////////////////////////////////////
 
     const oldChunk =
-        loadedChunks.get(key);
+        loadedChunks.get(
+            key
+        );
+
 
     if (oldChunk) {
 
@@ -974,24 +1325,15 @@ function buildChunk(cx, cz) {
 
         oldChunk.geometry.dispose();
 
-        loadedChunks.delete(key);
+        loadedChunks.delete(
+            key
+        );
     }
 
 
-    const positions = [];
-
-    const normals = [];
-
-    const uvs = [];
-
-    const blockForTriangle = [];
-
-    const faceCounts = {};
-
-    for (const block of BLOCKS) {
-        faceCounts[block] = 0;
-    }
-
+    ////////////////////////////////////////////////////////
+    // CHUNK BOUNDS
+    ////////////////////////////////////////////////////////
 
     const startX =
         cx * CHUNK_SIZE;
@@ -1007,7 +1349,7 @@ function buildChunk(cx, cz) {
 
 
     ////////////////////////////////////////////////////////
-    // MAKE FACES
+    // GENERATE MISSING COLUMNS
     ////////////////////////////////////////////////////////
 
     for (
@@ -1022,9 +1364,52 @@ function buildChunk(cx, cz) {
             z++
         ) {
 
-            // Ensure this column exists.
-            generateColumn(x, z);
+            generateColumn(
+                x,
+                z
+            );
+        }
+    }
 
+
+    ////////////////////////////////////////////////////////
+    // ARRAYS
+    ////////////////////////////////////////////////////////
+
+    const positions = [];
+
+    const normals = [];
+
+    const uvs = [];
+
+    const blockForTriangle = [];
+
+    const faceCounts = {};
+
+
+    for (
+        const block of BLOCKS
+    ) {
+
+        faceCounts[block] = 0;
+    }
+
+
+    ////////////////////////////////////////////////////////
+    // BUILD FACES
+    ////////////////////////////////////////////////////////
+
+    for (
+        let x = startX;
+        x < endX;
+        x++
+    ) {
+
+        for (
+            let z = startZ;
+            z < endZ;
+            z++
+        ) {
 
             for (
                 let y = 0;
@@ -1033,7 +1418,12 @@ function buildChunk(cx, cz) {
             ) {
 
                 const block =
-                    getBlock(x, y, z);
+                    getBlock(
+                        x,
+                        y,
+                        z
+                    );
+
 
                 if (!block) {
                     continue;
@@ -1041,17 +1431,21 @@ function buildChunk(cx, cz) {
 
 
                 for (
-                    const face of FACE_DEFINITIONS
+                    const face
+                    of FACE_DEFINITIONS
                 ) {
 
                     const nx =
-                        x + face.dir[0];
+                        x +
+                        face.dir[0];
 
                     const ny =
-                        y + face.dir[1];
+                        y +
+                        face.dir[1];
 
                     const nz =
-                        z + face.dir[2];
+                        z +
+                        face.dir[2];
 
 
                     const neighbor =
@@ -1068,6 +1462,7 @@ function buildChunk(cx, cz) {
                             neighbor
                         )
                     ) {
+
                         continue;
                     }
 
@@ -1075,11 +1470,6 @@ function buildChunk(cx, cz) {
                     const corners =
                         face.corners;
 
-
-                    //
-                    // Triangle 1:
-                    // 0 -> 1 -> 2
-                    //
 
                     const triangleVertices = [
                         0, 1, 2,
@@ -1095,11 +1485,13 @@ function buildChunk(cx, cz) {
                         const corner =
                             corners[index];
 
+
                         positions.push(
                             x + corner[0],
                             y + corner[1],
                             z + corner[2]
                         );
+
 
                         normals.push(
                             face.dir[0],
@@ -1107,8 +1499,10 @@ function buildChunk(cx, cz) {
                             face.dir[2]
                         );
 
+
                         const uv =
                             FACE_UVS[index];
+
 
                         uvs.push(
                             uv[0],
@@ -1117,26 +1511,18 @@ function buildChunk(cx, cz) {
                     }
 
 
-                    //
-                    // Two triangles belong
-                    // to this block.
-                    //
+                    blockForTriangle.push({
+                        x,
+                        y,
+                        z
+                    });
 
-                    blockForTriangle.push(
-                        {
-                            x,
-                            y,
-                            z
-                        }
-                    );
 
-                    blockForTriangle.push(
-                        {
-                            x,
-                            y,
-                            z
-                        }
-                    );
+                    blockForTriangle.push({
+                        x,
+                        y,
+                        z
+                    });
 
 
                     faceCounts[block]++;
@@ -1187,6 +1573,7 @@ function buildChunk(cx, cz) {
 
     let vertexOffset = 0;
 
+
     for (
         let materialIndex = 0;
         materialIndex < BLOCKS.length;
@@ -1194,12 +1581,21 @@ function buildChunk(cx, cz) {
     ) {
 
         const block =
-            BLOCKS[materialIndex];
+            BLOCKS[
+                materialIndex
+            ];
+
 
         const faces =
-            faceCounts[block];
+            faceCounts[
+                block
+            ];
 
-        if (faces <= 0) {
+
+        if (
+            faces <= 0
+        ) {
+
             continue;
         }
 
@@ -1215,28 +1611,31 @@ function buildChunk(cx, cz) {
         );
 
 
-        vertexOffset += vertexCount;
+        vertexOffset +=
+            vertexCount;
     }
 
 
     geometry.computeBoundingSphere();
 
 
-    //
-    // Save block mapping for raycasting.
-    //
+    ////////////////////////////////////////////////////////
+    // RAYCASTING DATA
+    ////////////////////////////////////////////////////////
 
-    geometry.userData.blockForTriangle =
+    geometry.userData
+        .blockForTriangle =
         blockForTriangle;
 
 
     ////////////////////////////////////////////////////////
-    // MATERIALS
+    // MESH
     ////////////////////////////////////////////////////////
 
     const materialList =
         BLOCKS.map(
-            block => materials[block]
+            block =>
+                materials[block]
         );
 
 
@@ -1247,9 +1646,13 @@ function buildChunk(cx, cz) {
         );
 
 
-    mesh.frustumCulled = true;
+    mesh.frustumCulled =
+        true;
 
-    scene.add(mesh);
+
+    scene.add(
+        mesh
+    );
 
 
     loadedChunks.set(
@@ -1265,16 +1668,200 @@ function buildChunk(cx, cz) {
 
 
 ////////////////////////////////////////////////////////////
+// CHUNK QUEUE
+////////////////////////////////////////////////////////////
+
+let chunkQueue = [];
+
+let chunkQueueSet =
+    new Set();
+
+let chunkGenerationRunning =
+    false;
+
+
+function queueChunk(
+    cx,
+    cz
+) {
+
+    const key =
+        chunkKey(
+            cx,
+            cz
+        );
+
+
+    if (
+        loadedChunks.has(key)
+    ) {
+
+        return;
+    }
+
+
+    if (
+        chunkQueueSet.has(key)
+    ) {
+
+        return;
+    }
+
+
+    chunkQueueSet.add(
+        key
+    );
+
+
+    chunkQueue.push({
+        cx,
+        cz
+    });
+}
+
+
+function sortChunkQueue() {
+
+    chunkQueue.sort(
+        (a, b) => {
+
+            const ax =
+                a.cx *
+                CHUNK_SIZE +
+                CHUNK_SIZE / 2;
+
+            const az =
+                a.cz *
+                CHUNK_SIZE +
+                CHUNK_SIZE / 2;
+
+
+            const bx =
+                b.cx *
+                CHUNK_SIZE +
+                CHUNK_SIZE / 2;
+
+            const bz =
+                b.cz *
+                CHUNK_SIZE +
+                CHUNK_SIZE / 2;
+
+
+            const adx =
+                ax - player.x;
+
+            const adz =
+                az - player.z;
+
+
+            const bdx =
+                bx - player.x;
+
+            const bdz =
+                bz - player.z;
+
+
+            return (
+                adx * adx +
+                adz * adz
+            ) - (
+                bdx * bdx +
+                bdz * bdz
+            );
+        }
+    );
+}
+
+
+async function processChunkQueue() {
+
+    if (
+        chunkGenerationRunning
+    ) {
+
+        return;
+    }
+
+
+    chunkGenerationRunning =
+        true;
+
+
+    let builtThisFrame = 0;
+
+
+    while (
+        chunkQueue.length > 0
+    ) {
+
+        const chunk =
+            chunkQueue.shift();
+
+
+        const key =
+            chunkKey(
+                chunk.cx,
+                chunk.cz
+            );
+
+
+        chunkQueueSet.delete(
+            key
+        );
+
+
+        if (
+            !loadedChunks.has(key)
+        ) {
+
+            buildChunk(
+                chunk.cx,
+                chunk.cz
+            );
+        }
+
+
+        builtThisFrame++;
+
+
+        if (
+            builtThisFrame >=
+            CHUNKS_PER_FRAME
+        ) {
+
+            builtThisFrame = 0;
+
+
+            await new Promise(
+                resolve =>
+                    requestAnimationFrame(
+                        resolve
+                    )
+            );
+        }
+    }
+
+
+    chunkGenerationRunning =
+        false;
+}
+
+
+////////////////////////////////////////////////////////////
 // CHUNK LOADING
 ////////////////////////////////////////////////////////////
 
-function updateChunks() {
+function getRequiredChunks() {
 
     const playerCX =
-        worldToChunk(player.x);
+        worldToChunk(
+            player.x
+        );
 
     const playerCZ =
-        worldToChunk(player.z);
+        worldToChunk(
+            player.z
+        );
 
 
     const required =
@@ -1290,37 +1877,47 @@ function updateChunks() {
 
     for (
         let cx =
-            playerCX - chunkRadius;
+            playerCX -
+            chunkRadius;
 
         cx <=
-            playerCX + chunkRadius;
+            playerCX +
+            chunkRadius;
 
         cx++
     ) {
 
         for (
             let cz =
-                playerCZ - chunkRadius;
+                playerCZ -
+                chunkRadius;
 
             cz <=
-                playerCZ + chunkRadius;
+                playerCZ +
+                chunkRadius;
 
             cz++
         ) {
 
             const centerX =
-                cx * CHUNK_SIZE +
+                cx *
+                CHUNK_SIZE +
                 CHUNK_SIZE / 2;
 
             const centerZ =
-                cz * CHUNK_SIZE +
+                cz *
+                CHUNK_SIZE +
                 CHUNK_SIZE / 2;
 
+
             const dx =
-                centerX - player.x;
+                centerX -
+                player.x;
 
             const dz =
-                centerZ - player.z;
+                centerZ -
+                player.z;
+
 
             const distance =
                 Math.sqrt(
@@ -1335,23 +1932,62 @@ function updateChunks() {
                 CHUNK_SIZE
             ) {
 
-                const key =
-                    chunkKey(cx, cz);
-
-                required.add(key);
-
-
-                if (
-                    !loadedChunks.has(key)
-                ) {
-
-                    buildChunk(
+                required.add(
+                    chunkKey(
                         cx,
                         cz
-                    );
-                }
+                    )
+                );
             }
         }
+    }
+
+
+    return required;
+}
+
+
+function updateChunks() {
+
+    const required =
+        getRequiredChunks();
+
+
+    ////////////////////////////////////////////////////////
+    // QUEUE MISSING CHUNKS
+    ////////////////////////////////////////////////////////
+
+    for (
+        const key
+        of required
+    ) {
+
+        if (
+            loadedChunks.has(key)
+        ) {
+
+            continue;
+        }
+
+
+        if (
+            chunkQueueSet.has(key)
+        ) {
+
+            continue;
+        }
+
+
+        const parts =
+            key.split(",").map(
+                Number
+            );
+
+
+        queueChunk(
+            parts[0],
+            parts[1]
+        );
     }
 
 
@@ -1372,16 +2008,29 @@ function updateChunks() {
                 chunk.mesh
             );
 
+
             chunk.geometry.dispose();
 
-            loadedChunks.delete(key);
+
+            loadedChunks.delete(
+                key
+            );
         }
     }
+
+
+    ////////////////////////////////////////////////////////
+    // BUILD QUEUED CHUNKS
+    ////////////////////////////////////////////////////////
+
+    sortChunkQueue();
+
+    processChunkQueue();
 }
 
 
 ////////////////////////////////////////////////////////////
-// REBUILD CHUNKS AFTER EDIT
+// REBUILD AFFECTED CHUNKS
 ////////////////////////////////////////////////////////////
 
 function rebuildAffectedChunks(
@@ -1401,44 +2050,61 @@ function rebuildAffectedChunks(
     ];
 
 
-    //
-    // Rebuild neighboring chunks if
-    // the block sits on a chunk border.
-    //
-
     const localX =
-        ((x % CHUNK_SIZE) +
-            CHUNK_SIZE) %
+        (
+            (x % CHUNK_SIZE) +
+            CHUNK_SIZE
+        ) %
         CHUNK_SIZE;
+
 
     const localZ =
-        ((z % CHUNK_SIZE) +
-            CHUNK_SIZE) %
+        (
+            (z % CHUNK_SIZE) +
+            CHUNK_SIZE
+        ) %
         CHUNK_SIZE;
 
 
-    if (localX === 0) {
+    if (
+        localX === 0
+    ) {
+
         chunks.push([
             cx - 1,
             cz
         ]);
     }
 
-    if (localX === CHUNK_SIZE - 1) {
+
+    if (
+        localX ===
+        CHUNK_SIZE - 1
+    ) {
+
         chunks.push([
             cx + 1,
             cz
         ]);
     }
 
-    if (localZ === 0) {
+
+    if (
+        localZ === 0
+    ) {
+
         chunks.push([
             cx,
             cz - 1
         ]);
     }
 
-    if (localZ === CHUNK_SIZE - 1) {
+
+    if (
+        localZ ===
+        CHUNK_SIZE - 1
+    ) {
+
         chunks.push([
             cx,
             cz + 1
@@ -1452,7 +2118,11 @@ function rebuildAffectedChunks(
     ) {
 
         const key =
-            chunkKey(rcx, rcz);
+            chunkKey(
+                rcx,
+                rcz
+            );
+
 
         if (
             loadedChunks.has(key)
@@ -1474,7 +2144,9 @@ function rebuildAffectedChunks(
 const player = {
 
     x: 0,
+
     y: 10,
+
     z: 0,
 
     velocityY: 0,
@@ -1498,13 +2170,21 @@ function isSolidBlock(
 ) {
 
     const block =
-        getBlock(x, y, z);
+        getBlock(
+            x,
+            y,
+            z
+        );
+
 
     if (!block) {
         return false;
     }
 
-    return !NON_SOLID_BLOCKS.has(block);
+
+    return !NON_SOLID_BLOCKS.has(
+        block
+    );
 }
 
 
@@ -1528,13 +2208,16 @@ function collidesAt(
             px + half
         );
 
+
     const minY =
         Math.floor(py);
 
     const maxY =
         Math.floor(
-            py + PLAYER_HEIGHT
+            py +
+            PLAYER_HEIGHT
         );
+
 
     const minZ =
         Math.floor(
@@ -1573,16 +2256,6 @@ function collidesAt(
                     )
                 ) {
 
-                    const blockMinX = x;
-                    const blockMaxX = x + 1;
-
-                    const blockMinY = y;
-                    const blockMaxY = y + 1;
-
-                    const blockMinZ = z;
-                    const blockMaxZ = z + 1;
-
-
                     const playerMinX =
                         px - half;
 
@@ -1593,7 +2266,8 @@ function collidesAt(
                         py;
 
                     const playerMaxY =
-                        py + PLAYER_HEIGHT;
+                        py +
+                        PLAYER_HEIGHT;
 
                     const playerMinZ =
                         pz - half;
@@ -1603,12 +2277,12 @@ function collidesAt(
 
 
                     if (
-                        playerMaxX > blockMinX &&
-                        playerMinX < blockMaxX &&
-                        playerMaxY > blockMinY &&
-                        playerMinY < blockMaxY &&
-                        playerMaxZ > blockMinZ &&
-                        playerMinZ < blockMaxZ
+                        playerMaxX > x &&
+                        playerMinX < x + 1 &&
+                        playerMaxY > y &&
+                        playerMinY < y + 1 &&
+                        playerMaxZ > z &&
+                        playerMinZ < z + 1
                     ) {
 
                         return true;
@@ -1617,6 +2291,7 @@ function collidesAt(
             }
         }
     }
+
 
     return false;
 }
@@ -1635,6 +2310,7 @@ function findGroundHeight(
     const half =
         PLAYER_WIDTH / 2;
 
+
     const minX =
         Math.floor(
             px - half
@@ -1645,6 +2321,7 @@ function findGroundHeight(
             px + half
         );
 
+
     const minZ =
         Math.floor(
             pz - half
@@ -1654,6 +2331,7 @@ function findGroundHeight(
         Math.floor(
             pz + half
         );
+
 
     let highest =
         -Infinity;
@@ -1702,18 +2380,22 @@ function findGroundHeight(
         }
     }
 
+
     return highest;
 }
 
 
 ////////////////////////////////////////////////////////////
-// WATER DETECTION
+// WATER
 ////////////////////////////////////////////////////////////
 
 function isPlayerInWater() {
 
     const centerX =
-        Math.floor(player.x);
+        Math.floor(
+            player.x
+        );
+
 
     const centerY =
         Math.floor(
@@ -1721,8 +2403,11 @@ function isPlayerInWater() {
             EYE_HEIGHT * 0.5
         );
 
+
     const centerZ =
-        Math.floor(player.z);
+        Math.floor(
+            player.z
+        );
 
 
     return (
@@ -1741,11 +2426,13 @@ function isPlayerInWater() {
 
 const keys = {};
 
+
 window.addEventListener(
     "keydown",
     event => {
 
         keys[event.code] = true;
+
 
         if (
             event.code === "Space"
@@ -1754,10 +2441,6 @@ window.addEventListener(
             event.preventDefault();
         }
 
-
-        ////////////////////////////////////////////////////
-        // HOTBAR
-        ////////////////////////////////////////////////////
 
         if (
             event.code.startsWith(
@@ -1773,6 +2456,7 @@ window.addEventListener(
                     )
                 );
 
+
             if (
                 number >= 1 &&
                 number <= 9
@@ -1780,6 +2464,7 @@ window.addEventListener(
 
                 selectedSlot =
                     number - 1;
+
 
                 updateHotbar();
             }
@@ -1792,7 +2477,8 @@ window.addEventListener(
     "keyup",
     event => {
 
-        keys[event.code] = false;
+        keys[event.code] =
+            false;
     }
 );
 
@@ -1805,6 +2491,7 @@ let yaw = 0;
 
 let pitch = 0;
 
+
 document.addEventListener(
     "mousemove",
     event => {
@@ -1813,18 +2500,25 @@ document.addEventListener(
             document.pointerLockElement !==
             renderer.domElement
         ) {
+
             return;
         }
 
+
         yaw -=
-            event.movementX * 0.002;
+            event.movementX *
+            0.002;
+
 
         pitch -=
-            event.movementY * 0.002;
+            event.movementY *
+            0.002;
 
 
         const limit =
-            Math.PI / 2 - 0.01;
+            Math.PI / 2 -
+            0.01;
+
 
         pitch =
             Math.max(
@@ -1848,7 +2542,42 @@ document.getElementById(
     "click",
     () => {
 
-        renderer.domElement.requestPointerLock();
+        renderer.domElement
+            .requestPointerLock();
+    }
+);
+
+
+////////////////////////////////////////////////////////////
+// SHOW START SCREEN
+////////////////////////////////////////////////////////////
+
+document.addEventListener(
+    "pointerlockchange",
+    () => {
+
+        const locked =
+            document.pointerLockElement ===
+            renderer.domElement;
+
+
+        if (
+            !locked &&
+            !dead
+        ) {
+
+            document.getElementById(
+                "startScreen"
+            ).style.display =
+                "flex";
+
+        } else {
+
+            document.getElementById(
+                "startScreen"
+            ).style.display =
+                "none";
+        }
     }
 );
 
@@ -1859,6 +2588,7 @@ document.getElementById(
 
 let selectedSlot = 0;
 
+
 const hotbar =
     document.getElementById(
         "hotbar"
@@ -1868,6 +2598,7 @@ const hotbar =
 function updateHotbar() {
 
     hotbar.innerHTML = "";
+
 
     for (
         let i = 0;
@@ -1883,6 +2614,7 @@ function updateHotbar() {
             document.createElement(
                 "div"
             );
+
 
         slot.className =
             "slot";
@@ -1903,8 +2635,10 @@ function updateHotbar() {
                 "div"
             );
 
+
         number.className =
             "slotNumber";
+
 
         number.textContent =
             i + 1;
@@ -1914,6 +2648,7 @@ function updateHotbar() {
             document.createElement(
                 "img"
             );
+
 
         img.src =
             TEXTURE_BASE +
@@ -1925,15 +2660,18 @@ function updateHotbar() {
             number
         );
 
+
         slot.appendChild(
             img
         );
+
 
         hotbar.appendChild(
             slot
         );
     }
 }
+
 
 updateHotbar();
 
@@ -1945,11 +2683,15 @@ updateHotbar();
 const raycaster =
     new THREE.Raycaster();
 
+
 const center =
     new THREE.Vector2(
         0,
         0
     );
+
+
+raycaster.far = 6;
 
 
 function getTargetBlock() {
@@ -1994,7 +2736,8 @@ function getTargetBlock() {
 
 
     if (
-        hit.faceIndex === undefined
+        hit.faceIndex ===
+        undefined
     ) {
 
         return null;
@@ -2006,7 +2749,8 @@ function getTargetBlock() {
 
 
     const mapping =
-        geometry.userData
+        geometry
+            .userData
             .blockForTriangle;
 
 
@@ -2022,8 +2766,11 @@ function getTargetBlock() {
 
 
     return {
+
         x: block.x,
+
         y: block.y,
+
         z: block.z,
 
         face: hit.face
@@ -2096,11 +2843,13 @@ function placeBlock() {
             normal.x
         );
 
+
     const y =
         target.y +
         Math.round(
             normal.y
         );
+
 
     const z =
         target.z +
@@ -2130,11 +2879,6 @@ function placeBlock() {
         return;
     }
 
-
-    //
-    // Don't allow placing a block
-    // directly inside the player.
-    //
 
     if (
         collidesAt(
@@ -2229,6 +2973,7 @@ function movePlayer(
 
     player.x += dx;
 
+
     if (
         collidesAt(
             player.x,
@@ -2243,6 +2988,7 @@ function movePlayer(
 
 
     player.z += dz;
+
 
     if (
         collidesAt(
@@ -2280,26 +3026,41 @@ function updatePhysics(
     let strafe = 0;
 
 
-    //
-    // W/S intentionally reversed.
-    //
-    // W = backward
-    // S = forward
-    //
+    /*
+        W/S intentionally reversed.
 
-    if (keys["KeyW"]) {
+        W = backward
+        S = forward
+    */
+
+    if (
+        keys["KeyW"]
+    ) {
+
         forward -= 1;
     }
 
-    if (keys["KeyS"]) {
+
+    if (
+        keys["KeyS"]
+    ) {
+
         forward += 1;
     }
 
-    if (keys["KeyA"]) {
+
+    if (
+        keys["KeyA"]
+    ) {
+
         strafe -= 1;
     }
 
-    if (keys["KeyD"]) {
+
+    if (
+        keys["KeyD"]
+    ) {
+
         strafe += 1;
     }
 
@@ -2311,10 +3072,15 @@ function updatePhysics(
         );
 
 
-    if (length > 0) {
+    if (
+        length > 0
+    ) {
 
-        forward /= length;
-        strafe /= length;
+        forward /=
+            length;
+
+        strafe /=
+            length;
     }
 
 
@@ -2322,9 +3088,9 @@ function updatePhysics(
         MOVE_SPEED;
 
 
-    //
+    ////////////////////////////////////////////////////////
     // WATER SLOWDOWN
-    //
+    ////////////////////////////////////////////////////////
 
     if (
         isPlayerInWater()
@@ -2346,14 +3112,18 @@ function updatePhysics(
         (
             strafe * cos -
             forward * sin
-        ) * speed * delta;
+        ) *
+        speed *
+        delta;
 
 
     const moveZ =
         (
             strafe * sin +
             forward * cos
-        ) * speed * delta;
+        ) *
+        speed *
+        delta;
 
 
     movePlayer(
@@ -2374,13 +3144,14 @@ function updatePhysics(
         player.velocityY =
             JUMP_POWER;
 
+
         player.onGround =
             false;
     }
 
 
     ////////////////////////////////////////////////////////
-    // FALLING
+    // FALL TRACKING
     ////////////////////////////////////////////////////////
 
     if (
@@ -2394,6 +3165,7 @@ function updatePhysics(
             player.wasFalling =
                 true;
 
+
             player.fallStartY =
                 player.y;
         }
@@ -2401,7 +3173,8 @@ function updatePhysics(
 
 
     player.velocityY -=
-        GRAVITY * delta;
+        GRAVITY *
+        delta;
 
 
     const oldY =
@@ -2438,18 +3211,21 @@ function updatePhysics(
 
 
             if (
-                ground !== -Infinity
+                ground !==
+                -Infinity
             ) {
 
                 player.y =
                     ground;
 
+
                 player.velocityY =
                     0;
 
-                //
+
+                //////////////////////////////////////////////////
                 // FALL DAMAGE
-                //
+                //////////////////////////////////////////////////
 
                 if (
                     player.wasFalling
@@ -2475,19 +3251,21 @@ function updatePhysics(
                             );
 
 
-                            if (
-                                damageAmount > 0
-                            ) {
+                        if (
+                            damageAmount > 0
+                        ) {
 
-                                damage(
-                                    damageAmount
-                                );
-                            }
+                            damage(
+                                damageAmount
+                            );
+                        }
                     }
                 }
 
+
                 player.wasFalling =
                     false;
+
 
                 player.onGround =
                     true;
@@ -2495,16 +3273,13 @@ function updatePhysics(
 
         } else {
 
-            //
-            // Hit ceiling
-            //
-
             player.y =
                 Math.floor(
                     player.y +
                     PLAYER_HEIGHT
                 ) -
                 PLAYER_HEIGHT;
+
 
             player.velocityY =
                 0;
@@ -2518,7 +3293,7 @@ function updatePhysics(
 
 
     ////////////////////////////////////////////////////////
-    // FALL INTO VOID
+    // VOID
     ////////////////////////////////////////////////////////
 
     if (
@@ -2538,13 +3313,15 @@ function updateCamera() {
 
     camera.position.set(
         player.x,
-        player.y + EYE_HEIGHT,
+        player.y +
+            EYE_HEIGHT,
         player.z
     );
 
 
     camera.rotation.y =
         yaw;
+
 
     camera.rotation.x =
         pitch;
@@ -2558,6 +3335,7 @@ function updateCamera() {
 function respawn() {
 
     const spawnX = 0;
+
     const spawnZ = 0;
 
 
@@ -2578,8 +3356,10 @@ function respawn() {
     player.x =
         spawnX + 0.5;
 
+
     player.z =
         spawnZ + 0.5;
+
 
     player.y =
         ground === -Infinity
@@ -2590,8 +3370,10 @@ function respawn() {
     player.velocityY =
         0;
 
+
     player.onGround =
         false;
+
 
     player.wasFalling =
         false;
@@ -2600,10 +3382,12 @@ function respawn() {
     health =
         MAX_HEALTH;
 
+
     updateHealthUI();
 
 
     dead = false;
+
 
     deathScreen.style.display =
         "none";
@@ -2614,24 +3398,86 @@ function respawn() {
 
 
 ////////////////////////////////////////////////////////////
-// WORLD INITIALIZATION
+// INITIAL WORLD GENERATION
 ////////////////////////////////////////////////////////////
 
-function initializeWorld() {
+async function initializeWorld() {
 
-    //
-    // Generate the starting area first.
-    //
+    const loading =
+        document.getElementById(
+            "loading"
+        );
+
+
+    const loadingText =
+        document.getElementById(
+            "loadingText"
+        );
+
+
+    const loadingSubtext =
+        document.getElementById(
+            "loadingSubtext"
+        );
+
+
+    loadingText.textContent =
+        "Generating world...";
+
+
+    loadingSubtext.textContent =
+        "Creating terrain";
+
+
+    ////////////////////////////////////////////////////////
+    // ONLY GENERATE A SMALL STARTING AREA
+    ////////////////////////////////////////////////////////
+
+    /*
+        We generate a little larger than the immediate
+        spawn area so collision and terrain around spawn
+        are already available.
+
+        We do NOT generate the entire render distance here.
+    */
+
+    const INITIAL_RADIUS =
+        RENDER_DISTANCE;
+
+
+    const min =
+        -INITIAL_RADIUS;
+
+    const max =
+        INITIAL_RADIUS;
+
+
+    let generated =
+        0;
+
+
+    const total =
+        (
+            max -
+            min +
+            1
+        ) *
+        (
+            max -
+            min +
+            1
+        );
+
 
     for (
-        let x = -RENDER_DISTANCE;
-        x <= RENDER_DISTANCE;
+        let x = min;
+        x <= max;
         x++
     ) {
 
         for (
-            let z = -RENDER_DISTANCE;
-            z <= RENDER_DISTANCE;
+            let z = min;
+            z <= max;
             z++
         ) {
 
@@ -2639,13 +3485,43 @@ function initializeWorld() {
                 x,
                 z
             );
+
+
+            generated++;
+
+
+            if (
+                generated %
+                TERRAIN_COLUMNS_PER_FRAME ===
+                0
+            ) {
+
+                const percent =
+                    Math.floor(
+                        generated /
+                        total *
+                        100
+                    );
+
+
+                loadingText.textContent =
+                    `Generating world... ${percent}%`;
+
+
+                await new Promise(
+                    resolve =>
+                        requestAnimationFrame(
+                            resolve
+                        )
+                );
+            }
         }
     }
 
 
-    //
-    // Spawn above the terrain.
-    //
+    ////////////////////////////////////////////////////////
+    // SPAWN
+    ////////////////////////////////////////////////////////
 
     const spawnGround =
         findGroundHeight(
@@ -2658,8 +3534,10 @@ function initializeWorld() {
     player.x =
         0.5;
 
+
     player.z =
         0.5;
+
 
     player.y =
         spawnGround === -Infinity
@@ -2667,14 +3545,70 @@ function initializeWorld() {
             : spawnGround + 0.01;
 
 
+    player.velocityY =
+        0;
+
+
+    player.onGround =
+        false;
+
+
+    player.wasFalling =
+        false;
+
+
+    ////////////////////////////////////////////////////////
+    // QUEUE INITIAL CHUNKS
+    ////////////////////////////////////////////////////////
+
+    loadingText.textContent =
+        "Building world...";
+
+
+    loadingSubtext.textContent =
+        "Loading nearby chunks";
+
+
     updateChunks();
+
+
+    ////////////////////////////////////////////////////////
+    // WAIT FOR INITIAL CHUNKS
+    ////////////////////////////////////////////////////////
+
+    while (
+        chunkQueue.length > 0 ||
+        chunkGenerationRunning
+    ) {
+
+        await new Promise(
+            resolve =>
+                requestAnimationFrame(
+                    resolve
+                )
+        );
+    }
+
+
+    ////////////////////////////////////////////////////////
+    // CAMERA
+    ////////////////////////////////////////////////////////
 
     updateCamera();
 
 
+    ////////////////////////////////////////////////////////
+    // DONE
+    ////////////////////////////////////////////////////////
+
+    loading.style.display =
+        "none";
+
+
     document.getElementById(
-        "loading"
-    ).style.display = "none";
+        "startScreen"
+    ).style.display =
+        "flex";
 }
 
 
@@ -2690,7 +3624,9 @@ window.addEventListener(
             window.innerWidth /
             window.innerHeight;
 
+
         camera.updateProjectionMatrix();
+
 
         renderer.setSize(
             window.innerWidth,
@@ -2706,6 +3642,7 @@ window.addEventListener(
 
 let lastTime =
     performance.now();
+
 
 let chunkTimer = 0;
 
@@ -2723,17 +3660,17 @@ function animate(
         (
             currentTime -
             lastTime
-        ) / 1000;
+        ) /
+        1000;
 
 
     lastTime =
         currentTime;
 
 
-    //
-    // Prevent giant physics jumps
-    // when the browser lags.
-    //
+    ////////////////////////////////////////////////////////
+    // LIMIT PHYSICS DELTA
+    ////////////////////////////////////////////////////////
 
     delta =
         Math.min(
@@ -2742,35 +3679,45 @@ function animate(
         );
 
 
+    ////////////////////////////////////////////////////////
+    // PHYSICS
+    ////////////////////////////////////////////////////////
+
     updatePhysics(
         delta
     );
 
 
+    ////////////////////////////////////////////////////////
+    // CAMERA
+    ////////////////////////////////////////////////////////
+
     updateCamera();
 
 
     ////////////////////////////////////////////////////////
-    // CHUNK UPDATES
+    // CHUNKS
     ////////////////////////////////////////////////////////
 
-    chunkTimer += delta;
+    chunkTimer +=
+        delta;
 
-
-    //
-    // Don't check chunk loading every
-    // single frame.
-    //
 
     if (
-        chunkTimer > 0.25
+        chunkTimer >
+        CHUNK_UPDATE_INTERVAL
     ) {
 
         chunkTimer = 0;
 
+
         updateChunks();
     }
 
+
+    ////////////////////////////////////////////////////////
+    // RENDER
+    ////////////////////////////////////////////////////////
 
     renderer.render(
         scene,
@@ -2783,11 +3730,13 @@ function animate(
 // START
 ////////////////////////////////////////////////////////////
 
-initializeWorld();
+initializeWorld().then(() => {
 
-animate(
-    performance.now()
-);
+    animate(
+        performance.now()
+    );
+
+});
 
 </script>
 
